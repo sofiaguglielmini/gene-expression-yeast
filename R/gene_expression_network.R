@@ -1,5 +1,9 @@
+# library(Biobase)
+# BioCManager::install("gaschYHS")
+# BioCManager::install("impute")
 library(gaschYHS)
 library(dplyr)
+library(impute)
 library(corrplot)
 library(ggplot2)
 library(graphSI)
@@ -73,19 +77,21 @@ gene_group <- data.frame(
 df <- as.data.frame(t(data.frame(do.call(rbind, expr_list))))
 
 colnames(df) <- genes
-df <- df %>% select(where( ~!all(is.na(.))))
+dim(df)
 
-# Remove genes and conditions with many missing values
-df <- df %>% select(which(colSums(is.na(.)) < 10))
-df <- df %>% filter(rowSums(is.na(.)) == 0)
-
+# Remove genes with 30% missing values
+df <- df %>% select(which(colSums(is.na(.)) < 0.3 * nrow(.)))
 # Remove the removed genes also from gene_groups
 gene_group <- gene_group %>% filter(gene %in% colnames(df))
+
+# Impute other missing values with knn
+df <- as.data.frame(impute.knn(as.matrix(df))$data)
 
 # Compute the correlation matrix
 cor_matrix <- cor(df)
 
 # Visualize the correlation matrix
+par(mfrow=c(1,1))
 corrplot(cor_matrix, method = "color", tl.srt = 90,
          tl.col = gene_group$color, tl.cex = 0.8)
 
@@ -113,7 +119,7 @@ mtext("Normal QQ-plots on transformed marginals", outer = TRUE, side=3, line=1, 
 # Select a graph on the entire dataset using the graphical elastic net
 n <- nrow(df)
 p <- ncol(df)
-selected_graph <- graphSelect(df, penalty="elastic net", data.splitting = T, penalize.diagonal = F)
+selected_graph <- graphSelect(df, penalty="elastic net", data.splitting = T,  lambda=sqrt(log(p)/nrow(df)), penalize.diagonal = F)
 adjacency_matrix <- selected_graph$adjacency.matrix
 
 # Estimate the graph in the selected model and do inference on all selected edges
@@ -192,22 +198,37 @@ stress <- setdiff(stress, mutants)
 df_control <- df[control, ]
 df_stress <- df[stress, ]
 
+# Correlation matrices for control and stress conditions
+cor_matrix_c <- cor(df_control)
+cor_matrix_s <- cor(df_stress)
+par(mfrow=c(1,2))
+corrplot(cor_matrix_c, method="color", tl.srt=90,
+         tl.col=gene_group$color, tl.cex=0.8)
+mtext("Control Conditions", side=3, line=-3)
+
+corrplot(cor_matrix_s, method="color", tl.srt=90,
+         tl.col=gene_group$color, tl.cex=0.8)
+mtext("Stressed Conditions", side=3, line=-3)
+
 # Compare the co-regulation graphs
 
-selected_graph_c <- graphSelect(df_control, penalty="elastic net", lambda=3*sqrt(log(p)/nrow(df_control)), data.splitting = F, penalize.diagonal = T)
+selected_graph_c <- graphSelect(df_control, penalty="elastic net", lambda=sqrt(log(p)/nrow(df_control)), data.splitting = F, penalize.diagonal = T)
 adjacency_matrix_c <- selected_graph_c$adjacency.matrix
 estimated_graph_c <- graphInference(df_control, selected_graph_c, to.test="none", nullvalue=0)
-W_c <- estimated_graph_c$estimated.graph
-selected_graph_s <- graphSelect(df_stress, penalty="elastic net", lambda=3*sqrt(log(p)/nrow(df_stress)), data.splitting = F, penalize.diagonal = T)
+selected_graph_s <- graphSelect(df_stress, penalty="elastic net", lambda=sqrt(log(p)/nrow(df_stress)), data.splitting = F, penalize.diagonal = T)
 adjacency_matrix_s <- selected_graph_s$adjacency.matrix
 estimated_graph_s <- graphInference(df_stress, selected_graph_s, to.test="none", nullvalue=0)
-W_s <- estimated_graph_s$estimated.graph
+
+W_c <- -cov2cor(estimated_graph_c$estimated.graph)
+diag(W_c) <- 1
+W_s <- -cov2cor(estimated_graph_s$estimated.graph)
+diag(W_s) <- 1
 
 nodes <- data.frame(id = 1:p, name = gene_group$gene, Group = gene_group$group, color = gene_group$color)
 
-edges_c <- cbind(which(W_c != 0, arr.ind = TRUE), Weight = rescale(abs(W_c)[W_c != 0]))
+edges_c <- cbind(which(W_c != 0, arr.ind = TRUE), Weight = rescale(abs(W_c)[W_c != 0]), Sign = sign(W_c)[W_c != 0])
 edges_c <- as.data.frame(edges_c) %>% filter(row > col) %>% rename(from = row, to = col)
-edges_s <- cbind(which(W_s != 0, arr.ind = TRUE), Weight = rescale(abs(W_s)[W_s != 0]))
+edges_s <- cbind(which(W_s != 0, arr.ind = TRUE), Weight = rescale(abs(W_s)[W_s != 0]), Sign = sign(W_s)[W_s != 0])
 edges_s <- as.data.frame(edges_s) %>% filter(row > col) %>% rename(from = row, to = col)
 
 gene_graph_c <- graph_from_data_frame(d = edges_c, vertices = nodes, directed = FALSE)
@@ -218,17 +239,27 @@ coords <- layout_c[, c("x","y")]
 coords <- as.matrix(coords)
 
 p1 <- ggraph(layout_c) +
-  geom_edge_link(aes(alpha = Weight), color = "grey70", width = 1) +
+  geom_edge_link(aes(alpha = Weight, color = factor(Sign)), width = 1) +
   geom_node_point(aes(color = Group,
                       size = rescale(degree(gene_graph_c)))) +
+  scale_edge_color_manual(
+    name = "Interaction",
+    values = c("1" = "skyblue2", "-1" = "salmon2"),
+    labels = c("Positive", "Negative")
+  ) +
   scale_color_manual(values = setNames(gene_group$color, gene_group$group)) +
   geom_node_text(aes(label = name), vjust = 1.5, size = 3) +
   theme_void()+
   theme(legend.position = "none")
 p2 <- ggraph(gene_graph_s, layout = coords) +
-  geom_edge_link(aes(alpha = Weight), color = "grey70", width = 1) +
+  geom_edge_link(aes(alpha = Weight, color = factor(Sign)), width = 1) +
   geom_node_point(aes(color = Group,
                       size = rescale(degree(gene_graph_s)))) +
+  scale_edge_color_manual(
+    name = "Interaction",
+    values = c("1" = "skyblue2", "-1" = "salmon2"),
+    labels = c("Positive", "Negative")
+  ) +
   scale_color_manual(values = setNames(gene_group$color, gene_group$group)) +
   geom_node_text(aes(label = name), vjust = 1.5, size = 3) +
   theme_void() +
@@ -239,19 +270,6 @@ grid.arrange(p1 + ggtitle("Control Conditions") +
              p2 + ggtitle("Stressed Conditions") +
                theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold.italic")),
              ncol=2)
-
-# Histogram of edge weights in control and stress
-edges_c$Condition <- "Control"
-edges_s$Condition <- "Stress"
-edges_all <- rbind(edges_c, edges_s)
-ggplot(edges_all, aes(x = Weight, fill = Condition)) +
-  geom_histogram(position = "dodge", bins = 20, alpha = 0.7) +
-  scale_fill_manual(values = c("Control" = "skyblue", "Stress" = "salmon")) +
-  labs(title = "Edge Weight Distribution",
-       x = "Edge Weight",
-       y = "Count") +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold.italic"))
 
 # Top hub genes in control
 strength_values_c <- igraph::strength(gene_graph_c)
@@ -286,4 +304,46 @@ least_table_s <- data.frame(
   Group = V(gene_graph_s)$Group[match(least_connected_genes_s, V(gene_graph_s)$name)]
 )
 colnames(least_table_s) <- c("Node Strength", "Group")
+
+# Compute now the difference between the two estimated networks to identify edges that change significantly between control and stressed conditions. This differential network highlights gene interactions that are specifically altered in response to environmental stress. We first transform the estimated precision matrices to partial correlation matrices, to avoid false discoveries caused by scale differences (Tu et al. 2021) -->
+
+W_d <- W_s - W_c
+
+# Visualize the differential network
+edges_d <- cbind(which(W_d != 0, arr.ind = TRUE), Weight = rescale(abs(W_d)[W_d != 0]), Sign = sign(W_d)[W_d != 0])
+edges_d <- as.data.frame(edges_d) %>% filter(row > col) %>% rename(from = row, to = col)
+gene_graph_d <- graph_from_data_frame(d = edges_d, vertices = nodes, directed = FALSE)
+ggraph(gene_graph_d, layout = coords) +
+  geom_edge_link(aes(alpha = Weight, color = factor(Sign)), width = 1) +
+  scale_edge_color_manual(
+    name = "Interaction",
+    values = c("1" = "skyblue2", "-1" = "salmon2"),
+    labels = c("strengthened", "weakened")
+  ) +
+  geom_node_point(aes(color = Group,
+                      size = rescale(degree(gene_graph_d)))) +
+  scale_color_manual(values = setNames(gene_group$color, gene_group$group)) +
+  geom_node_text(aes(label = name), vjust = 1.5, size = 3) +
+  theme_void() +
+  guides(edge_alpha = "none", size = "none", color = guide_legend(title = "Gene Group", override.aes = list(size = 3))) +
+  ggtitle("Differential Gene Co-expression Network (Stress - Control)") +
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold.italic"))
+
+# Top changed edges in the differential network
+strength_values_d <- igraph::strength(gene_graph_d)
+top_changed_genes_d <- names(sort(strength_values_d, decreasing = TRUE))[1:10]
+changed_table_d <- data.frame(
+  Strength = strength_values_d[top_changed_genes_d],
+  Group = V(gene_graph_d)$Group[match(top_changed_genes_d, V(gene_graph_d)$name)]
+)
+colnames(changed_table_d) <- c("Node Strength", "Group")
+# Less changed edges in the differential network
+least_changed_genes_d <- names(sort(strength_values_d, decreasing = FALSE))[1:10]
+least_changed_table_d <- data.frame(
+  Strength = strength_values_d[least_changed_genes_d],
+  Group = V(gene_graph_d)$Group[match(least_changed_genes_d, V(gene_graph_d)$name)]
+)
+colnames(least_changed_table_d) <- c("Node Strength", "Group")
+
+
 

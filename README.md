@@ -2,6 +2,20 @@ Network analysis of gene expression data: a case study in *Saccharomyces
 cerevisiae*
 ================
 
+## Table of contents
+
+- [Introduction](#introduction)
+- [Exploratory Data Analysis](#exploratory-data-analysis)
+- [Gene Co-expression Network Selection, Estimation and
+  Inference](#gene-co-expression-network-selection-estimation-and-inference)
+  - [Network Analysis: Hub and Bridging
+    Genes](#network-analysis-hub-and-bridging-genes)
+- [Differential analysis of Gene Co-expression Networks under Control
+  and Stressed
+  Conditions](#differential-analysis-of-gene-co-expression-networks-under-control-and-stressed-conditions)
+  - [Differential network analysis](#differential-network-analysis)
+- [References](#references)
+
 ## Introduction
 
 In this analysis, we explore the gene expression data from the
@@ -9,12 +23,18 @@ In this analysis, we explore the gene expression data from the
 gene expression levels in *Saccharomyces cerevisiae* (baker’s yeast)
 under various environmental stress conditions. Our goal is to construct
 and analyze gene co-expression networks to identify key genes and their
-interactions under both control and stressed conditions.
+interactions under both control and stressed conditions. The dataset is
+loaded from the `gaschYHS` package available on Bioconductor.
 
 ``` r
 # Load necessary libraries
+
+# library(Biobase)
+# BioCManager::install("gaschYHS")
+# BioCManager::install("impute")
 library(gaschYHS)
 library(dplyr)
+library(impute)
 library(corrplot)
 library(ggplot2)
 library(graphSI)
@@ -52,11 +72,10 @@ the following functions:
 These groups are identified in the original publication by Gasch et
 al. (2000).
 
-Some of the genes in these groups may not be present in the dataset; we
-will handle this by checking for their presence and excluding any
-missing genes from our analysis. Furthermore, we will remove genes with
-more than 10 missing values and conditions with any remaining missing
-values to ensure a complete dataset for our analysis.
+Some of the genes in these groups are excluded as they are not present
+in the dataset from Bioconductor; furthermore, we remove genes with more
+than missing values on more than 30% of the conditions. We impute the
+remaining missing values using k-nearest neighbors imputation.
 
 ``` r
 # group A: genes involved in carbohydrate metabolism
@@ -130,17 +149,17 @@ gene_group <- data.frame(
 df <- as.data.frame(t(data.frame(do.call(rbind, expr_list))))
 
 colnames(df) <- genes
-df <- df %>% select(where( ~!all(is.na(.))))
 
-# Remove genes and conditions with many missing values
-df <- df %>% select(which(colSums(is.na(.)) < 10))
-df <- df %>% filter(rowSums(is.na(.)) == 0)
-
+# Remove genes with 30% missing values
+df <- df %>% select(which(colSums(is.na(.)) < 0.3 * nrow(.)))
 # Remove the removed genes also from gene_groups
 gene_group <- gene_group %>% filter(gene %in% colnames(df))
+
+# Impute other missing values with knn
+df <- as.data.frame(impute.knn(as.matrix(df))$data)
 ```
 
-In the final dataset, we have 117 observations (conditions) and 59 genes
+In the final dataset, we have 173 observations (conditions) and 64 genes
 with complete data for analysis.
 
 ## Exploratory Data Analysis
@@ -270,7 +289,7 @@ ggraph(gene_graph, layout = "fr") +
 
 ![](README_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
 
-## Network Analysis: Hub and Bridging Genes
+### Network Analysis: Hub and Bridging Genes
 
 We will now analyze the network to identify hub genes, which are highly
 connected nodes in the network, and bridging genes, which connect to
@@ -332,18 +351,18 @@ colnames(localized_table) <- c("Bridge Strength", "Group")
 Top 10 Hub Genes
 </h4>
 
-|       | Node Strength | Group |
-|:------|--------------:|:------|
-| GLK1  |            43 | A     |
-| PGM2  |            40 | A     |
-| TSL1  |            39 | A     |
-| HSP42 |            39 | C     |
-| IKS1  |            39 | F     |
-| GSY2  |            38 | A     |
-| CTT1  |            38 | B     |
-| KNS1  |            38 | F     |
-| HXK1  |            37 | A     |
-| XKS1  |            37 | A     |
+|        | Node Strength | Group |
+|:-------|--------------:|:------|
+| IKS1   |            44 | F     |
+| HXK1   |            38 | A     |
+| GSY2   |            38 | A     |
+| TSL1   |            38 | A     |
+| CTT1   |            38 | B     |
+| PGM2   |            37 | A     |
+| NTH1   |            36 | A     |
+| HSP104 |            35 | C     |
+| SSE2   |            35 | C     |
+| UBI4   |            35 | D     |
 
 </div>
 
@@ -357,15 +376,15 @@ Least Connected Genes
 |       | Node Strength | Group |
 |:------|--------------:|:------|
 | VAB31 |             8 | D     |
-| TRX2  |            11 | B     |
-| SOD1  |            13 | B     |
-| SSA3  |            17 | C     |
-| NPR1  |            18 | F     |
-| CCP1  |            19 | B     |
-| HYR1  |            19 | B     |
-| UBC5  |            19 | D     |
-| TOR1  |            21 | F     |
-| GLG1  |            22 | A     |
+| SOD1  |             9 | B     |
+| TRX2  |            12 | B     |
+| NPR1  |            13 | F     |
+| GLG1  |            15 | A     |
+| UBC5  |            15 | D     |
+| MMS2  |            16 | E     |
+| CCP1  |            17 | B     |
+| TTR1  |            17 | B     |
+| HYR1  |            17 | B     |
 
 </div>
 
@@ -376,18 +395,18 @@ Least Connected Genes
 Top 10 Bridging Hubs
 </h4>
 
-|       | Bridge Strength | Group |
-|:------|----------------:|:------|
-| CTT1  |              36 | B     |
-| HSP42 |              34 | C     |
-| GLK1  |              32 | A     |
-| IKS1  |              31 | F     |
-| PGM2  |              27 | A     |
-| TSL1  |              27 | A     |
-| KNS1  |              27 | F     |
-| GSY2  |              26 | A     |
-| LAP4  |              26 | D     |
-| SRA3  |              26 | F     |
+|        | Bridge Strength | Group |
+|:-------|----------------:|:------|
+| CTT1   |              37 | B     |
+| IKS1   |              34 | F     |
+| HSP42  |              30 | C     |
+| HSP104 |              29 | C     |
+| SSE2   |              29 | C     |
+| UBI4   |              27 | D     |
+| SRA3   |              27 | F     |
+| MTL1   |              27 | F     |
+| GPM2   |              26 | A     |
+| NTH1   |              26 | A     |
 
 </div>
 
@@ -400,20 +419,20 @@ Most Localized Nodes
 
 |       | Bridge Strength | Group |
 |:------|----------------:|:------|
-| TRX2  |               5 | B     |
+| SOD1  |               4 | B     |
 | VAB31 |               5 | D     |
-| SOD1  |               8 | B     |
-| GLG1  |              12 | A     |
-| SSA3  |              12 | C     |
-| NPR1  |              12 | F     |
-| UBC5  |              13 | D     |
-| GPD1  |              14 | A     |
-| HYR1  |              14 | B     |
-| APG1  |              14 | D     |
+| GLG1  |               6 | A     |
+| TRX2  |               6 | B     |
+| UBC5  |              10 | D     |
+| PEP4  |              10 | D     |
+| NPR1  |              10 | F     |
+| GPD1  |              11 | A     |
+| HYR1  |              12 | B     |
+| PRC1  |              12 | D     |
 
 </div>
 
-## Comparison of Gene Co-expression Networks under Control and Stressed Conditions
+## Differential analysis of Gene Co-expression Networks under Control and Stressed Conditions
 
 Finally, we will compare the gene co-expression networks constructed
 from control conditions and stressed conditions. This comparison will
@@ -449,8 +468,36 @@ df_control <- df[control, ]
 df_stress <- df[stress, ]
 ```
 
-We obtain 24 observations for the control group and 93 observations for
+We obtain 30 observations for the control group and 143 observations for
 the stressed group.
+
+We first compute the correlation matrices for both groups to visualize
+differences in pairwise gene relationships. All pairwise correlations
+are positive in both groups, the stressed conditions show smaller
+correlations overall, indicating that stress may disrupt some gene
+co-expression patterns.
+
+``` r
+# Correlation matrices for control and stress conditions
+cor_matrix_c <- cor(df_control)
+cor_matrix_s <- cor(df_stress)
+par(mfrow=c(1,2))
+corrplot(cor_matrix_c, method="color", tl.srt=90,
+         tl.col=gene_group$color, tl.cex=0.8)
+mtext("Control Conditions", side=3, line=3)
+
+corrplot(cor_matrix_s, method="color", tl.srt=90,
+         tl.col=gene_group$color, tl.cex=0.8)
+mtext("Stressed Conditions", side=3, line=3)
+```
+
+![](README_files/figure-gfm/unnamed-chunk-9-1.png)<!-- -->
+
+We compute separate gene co-expression networks for the control and
+stressed conditions using the same procedure as before, but without data
+splitting since inference is not performed here. We then transform the
+estimated precision matrices to partial correlation matrices, to avoid
+false discoveries caused by scale differences (Tu et al. 2021).
 
 We compare the two networks by visualizing them side by side, analyzing
 the top hub genes in each network, and examining the distribution of
@@ -460,32 +507,36 @@ graphs. The penalty parameter for graph selection is adjusted according
 to the sample size in each group. Due to the low sample size, and the
 different sample sizes between the two groups, we should be cautious in
 interpreting the results. The stress graph is denser than the control
-one, indicating that stress conditions may induce more complex gene
-interactions.
-
-We further examine the distribution of edge weights in both networks to
-see how stress conditions may affect the strength of gene interactions.
-The edge weights in the stressed condition tend to be higher, indicating
-not only more connections between genes under stress, as seen in the
-selected graphs, but also stronger ones.
+one, with some positive interactions and some negative interactions in
+both cases. This result differs from the exploratory correlation
+analysis, where all correlations were positive. This highlights the
+importance of considering conditional dependencies rather than just
+marginal correlations when analyzing gene co-expression networks:
+pairwise correlations represent the global associations between genes,
+while partial correlations reflect the correlation between two genes
+after conditioning on all other genes, removing the global co-regulation
+effect.
 
 ``` r
 # Compare the co-regulation graphs
 
-selected_graph_c <- graphSelect(df_control, penalty="elastic net", lambda=3*sqrt(log(p)/nrow(df_control)), data.splitting = F, penalize.diagonal = T)
+selected_graph_c <- graphSelect(df_control, penalty="elastic net", lambda=sqrt(log(p)/nrow(df_control)), data.splitting = F, penalize.diagonal = T)
 adjacency_matrix_c <- selected_graph_c$adjacency.matrix
 estimated_graph_c <- graphInference(df_control, selected_graph_c, to.test="none", nullvalue=0)
-W_c <- estimated_graph_c$estimated.graph
-selected_graph_s <- graphSelect(df_stress, penalty="elastic net", lambda=3*sqrt(log(p)/nrow(df_stress)), data.splitting = F, penalize.diagonal = T)
+selected_graph_s <- graphSelect(df_stress, penalty="elastic net", lambda=sqrt(log(p)/nrow(df_stress)), data.splitting = F, penalize.diagonal = T)
 adjacency_matrix_s <- selected_graph_s$adjacency.matrix
 estimated_graph_s <- graphInference(df_stress, selected_graph_s, to.test="none", nullvalue=0)
-W_s <- estimated_graph_s$estimated.graph
+
+W_c <- -cov2cor(estimated_graph_c$estimated.graph)
+diag(W_c) <- 1
+W_s <- -cov2cor(estimated_graph_s$estimated.graph)
+diag(W_s) <- 1
 
 nodes <- data.frame(id = 1:p, name = gene_group$gene, Group = gene_group$group, color = gene_group$color)
 
-edges_c <- cbind(which(W_c != 0, arr.ind = TRUE), Weight = rescale(abs(W_c)[W_c != 0]))
+edges_c <- cbind(which(W_c != 0, arr.ind = TRUE), Weight = rescale(abs(W_c)[W_c != 0]), Sign = sign(W_c)[W_c != 0])
 edges_c <- as.data.frame(edges_c) %>% filter(row > col) %>% rename(from = row, to = col)
-edges_s <- cbind(which(W_s != 0, arr.ind = TRUE), Weight = rescale(abs(W_s)[W_s != 0]))
+edges_s <- cbind(which(W_s != 0, arr.ind = TRUE), Weight = rescale(abs(W_s)[W_s != 0]), Sign = sign(W_s)[W_s != 0])
 edges_s <- as.data.frame(edges_s) %>% filter(row > col) %>% rename(from = row, to = col)
 
 gene_graph_c <- graph_from_data_frame(d = edges_c, vertices = nodes, directed = FALSE)
@@ -496,17 +547,27 @@ coords <- layout_c[, c("x","y")]
 coords <- as.matrix(coords)
 
 p1 <- ggraph(layout_c) +
-  geom_edge_link(aes(alpha = Weight), color = "grey70", width = 1) +
+  geom_edge_link(aes(alpha = Weight, color = factor(Sign)), width = 1) +
   geom_node_point(aes(color = Group,
                       size = rescale(degree(gene_graph_c)))) +
+  scale_edge_color_manual(
+    name = "Interaction",
+    values = c("1" = "skyblue2", "-1" = "salmon2"),
+    labels = c("Positive", "Negative")
+  ) +
   scale_color_manual(values = setNames(gene_group$color, gene_group$group)) +
   geom_node_text(aes(label = name), vjust = 1.5, size = 3) +
   theme_void()+
   theme(legend.position = "none")
 p2 <- ggraph(gene_graph_s, layout = coords) +
-  geom_edge_link(aes(alpha = Weight), color = "grey70", width = 1) +
+  geom_edge_link(aes(alpha = Weight, color = factor(Sign)), width = 1) +
   geom_node_point(aes(color = Group,
                       size = rescale(degree(gene_graph_s)))) +
+  scale_edge_color_manual(
+    name = "Interaction",
+    values = c("1" = "skyblue2", "-1" = "salmon2"),
+    labels = c("Positive", "Negative")
+  ) +
   scale_color_manual(values = setNames(gene_group$color, gene_group$group)) +
   geom_node_text(aes(label = name), vjust = 1.5, size = 3) +
   theme_void() +
@@ -519,30 +580,13 @@ grid.arrange(p1 + ggtitle("Control Conditions") +
              ncol=2)
 ```
 
-![](README_files/figure-gfm/unnamed-chunk-9-1.png)<!-- -->
+![](README_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
 
-``` r
-# Histogram of edge weights in control and stress
-edges_c$Condition <- "Control"
-edges_s$Condition <- "Stress"
-edges_all <- rbind(edges_c, edges_s)
-ggplot(edges_all, aes(x = Weight, fill = Condition)) +
-  geom_histogram(position = "dodge", bins = 20, alpha = 0.7) +
-  scale_fill_manual(values = c("Control" = "skyblue", "Stress" = "salmon")) +
-  labs(title = "Edge Weight Distribution",
-       x = "Edge Weight",
-       y = "Count") +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold.italic"))
-```
-
-![](README_files/figure-gfm/unnamed-chunk-9-2.png)<!-- -->
-
-Finally, we analyze the top hub genes and least connected genes in each
-network. In the control conditions, hubs are mostly from group A,
-suggesting these genes dominate central positions under normal
-conditions. Under environmental stress, group F becomes prominent,
-possibly reflecting the activation of stress-response pathways.
+We analyze the top hub genes and least connected genes in each network.
+In the control conditions, hubs are mostly from group A, suggesting
+these genes dominate central positions under normal conditions. Under
+environmental stress, group F becomes prominent, possibly reflecting the
+activation of stress-response pathways.
 
 ``` r
 # Top hub genes in control
@@ -589,16 +633,16 @@ Top 10 Hub Genes in Control
 
 |       | Node Strength | Group |
 |:------|--------------:|:------|
-| PFK26 |            52 | A     |
-| TSL1  |            52 | A     |
-| ATH1  |            51 | A     |
-| PRC1  |            51 | D     |
-| KNS1  |            51 | F     |
-| GLK1  |            50 | A     |
-| HSP42 |            50 | C     |
-| SSA4  |            49 | C     |
-| MTL1  |            49 | F     |
-| GSY2  |            48 | A     |
+| KNS1  |            46 | F     |
+| GLK1  |            45 | A     |
+| HSP42 |            45 | C     |
+| PKA3  |            45 | F     |
+| PFK26 |            44 | A     |
+| ATH1  |            44 | A     |
+| IKS1  |            44 | F     |
+| MTL1  |            43 | F     |
+| TSL1  |            41 | A     |
+| HSP26 |            40 | C     |
 
 </div>
 
@@ -611,16 +655,16 @@ Top 10 Hub Genes in Stress
 
 |       | Node Strength | Group |
 |:------|--------------:|:------|
-| CTT1  |            47 | B     |
-| HSP42 |            47 | C     |
-| NTH1  |            46 | A     |
-| IKS1  |            42 | F     |
-| SRA3  |            41 | F     |
-| RIM11 |            40 | F     |
-| ATH1  |            37 | A     |
-| GLK1  |            36 | A     |
-| SIP2  |            36 | F     |
-| KIN82 |            36 | F     |
+| HSP42 |            36 | C     |
+| SSE2  |            33 | C     |
+| NTH1  |            32 | A     |
+| CTT1  |            32 | B     |
+| PKA3  |            32 | F     |
+| IKS1  |            32 | F     |
+| SRA3  |            31 | F     |
+| PFK26 |            30 | A     |
+| HSP26 |            28 | C     |
+| AUT7  |            27 | D     |
 
 </div>
 
@@ -631,18 +675,18 @@ Top 10 Hub Genes in Stress
 Least Connected Genes in Control
 </h4>
 
-|       | Node Strength | Group |
-|:------|--------------:|:------|
-| SDS22 |             6 | F     |
-| TRX2  |            14 | B     |
-| UBI4  |            14 | D     |
-| MMS2  |            20 | E     |
-| TTR1  |            21 | B     |
-| PTK2  |            21 | F     |
-| SOD1  |            24 | B     |
-| MAG1  |            24 | E     |
-| CCP1  |            26 | B     |
-| UBP15 |            27 | D     |
+|        | Node Strength | Group |
+|:-------|--------------:|:------|
+| SDS22  |             8 | F     |
+| UBI4   |            15 | D     |
+| TTR1   |            16 | B     |
+| PTK2   |            16 | F     |
+| TRX2   |            17 | B     |
+| UBP15  |            19 | D     |
+| HSP104 |            20 | C     |
+| MMS2   |            22 | E     |
+| LAP4   |            23 | D     |
+| GPD1   |            24 | A     |
 
 </div>
 
@@ -655,16 +699,110 @@ Least Connected Genes in Stress
 
 |       | Node Strength | Group |
 |:------|--------------:|:------|
-| TRX2  |            13 | B     |
-| VAB31 |            15 | D     |
-| PTK2  |            19 | F     |
-| SSA3  |            20 | C     |
-| NPR1  |            20 | F     |
-| SOD1  |            21 | B     |
-| MMS2  |            21 | E     |
-| GPD1  |            22 | A     |
-| CCP1  |            22 | B     |
-| SSA4  |            22 | C     |
+| TRX2  |            14 | B     |
+| CCP1  |            15 | B     |
+| SDS22 |            15 | F     |
+| VAB31 |            16 | D     |
+| SOD1  |            17 | B     |
+| MMS2  |            17 | E     |
+| TPS2  |            19 | A     |
+| HYR1  |            19 | B     |
+| SSA4  |            19 | C     |
+| PEP4  |            19 | D     |
+
+</div>
+
+### Differential network analysis
+
+Compute now the difference between the two estimated networks to
+identify edges that change significantly between control and stressed
+conditions. This differential network highlights gene interactions that
+are specifically altered in response to environmental stress.
+
+``` r
+W_d <- W_s - W_c
+
+# Visualize the differential network
+edges_d <- cbind(which(W_d != 0, arr.ind = TRUE), Weight = rescale(abs(W_d)[W_d != 0]), Sign = sign(W_d)[W_d != 0])
+edges_d <- as.data.frame(edges_d) %>% filter(row > col) %>% rename(from = row, to = col)
+gene_graph_d <- graph_from_data_frame(d = edges_d, vertices = nodes, directed = FALSE)
+ggraph(gene_graph_d, layout = coords) +
+  geom_edge_link(aes(alpha = Weight, color = factor(Sign)), width = 1) +
+  scale_edge_color_manual(
+    name = "Interaction",
+    values = c("1" = "skyblue2", "-1" = "salmon2"),
+    labels = c("strengthened", "weakened")
+  ) +
+  geom_node_point(aes(color = Group,
+                      size = rescale(degree(gene_graph_d)))) +
+  scale_color_manual(values = setNames(gene_group$color, gene_group$group)) +
+  geom_node_text(aes(label = name), vjust = 1.5, size = 3) +
+  theme_void() +
+  guides(edge_alpha = "none", size = "none", color = guide_legend(title = "Gene Group", override.aes = list(size = 3))) +
+  ggtitle("Differential Gene Co-expression Network (Stress - Control)") +
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold.italic"))
+```
+
+![](README_files/figure-gfm/unnamed-chunk-13-1.png)<!-- -->
+
+``` r
+strength_values_d <- igraph::strength(gene_graph_d)
+top_changed_genes_d <- names(sort(strength_values_d, decreasing = TRUE))[1:10]
+changed_table_d <- data.frame(
+  Strength = strength_values_d[top_changed_genes_d],
+  Group = V(gene_graph_d)$Group[match(top_changed_genes_d, V(gene_graph_d)$name)]
+)
+colnames(changed_table_d) <- c("Node Strength", "Group")
+# Less changed edges in the differential network
+least_changed_genes_d <- names(sort(strength_values_d, decreasing = FALSE))[1:10]
+least_changed_table_d <- data.frame(
+  Strength = strength_values_d[least_changed_genes_d],
+  Group = V(gene_graph_d)$Group[match(least_changed_genes_d, V(gene_graph_d)$name)]
+)
+colnames(least_changed_table_d) <- c("Node Strength", "Group")
+```
+
+<div style="display: inline-block; vertical-align: top; margin-right: 20px;">
+
+<h4>
+
+Top 10 Changed Genes in Differential Network
+</h4>
+
+|       | Node Strength | Group |
+|:------|--------------:|:------|
+| GLK1  |            53 | A     |
+| HSP42 |            52 | C     |
+| PKA3  |            52 | F     |
+| IKS1  |            51 | F     |
+| KNS1  |            51 | F     |
+| MTL1  |            49 | F     |
+| ATH1  |            48 | A     |
+| PFK26 |            47 | A     |
+| NTH1  |            46 | A     |
+| CTT1  |            46 | B     |
+
+</div>
+
+<div style="display: inline-block; vertical-align: top;">
+
+<h4>
+
+Least Changed Genes in Differential Network
+</h4>
+
+|       | Node Strength | Group |
+|:------|--------------:|:------|
+| SDS22 |            18 | F     |
+| TRX2  |            25 | B     |
+| UBP15 |            26 | D     |
+| HXK1  |            29 | A     |
+| TTR1  |            30 | B     |
+| UBI4  |            30 | D     |
+| LAP4  |            30 | D     |
+| MMS2  |            30 | E     |
+| PTK2  |            30 | F     |
+| PGM2  |            33 | A     |
 
 </div>
 
@@ -683,5 +821,9 @@ algorithms and software for sparse precision matrix estimation.” *arXiv*
 preprint arXiv:2101.02148 (2021).
 
 Opsahl, Tore, Filip Agneessens, and John Skvoretz. “Node centrality in
-weighted networks: Generalizing degree and shortest paths.” Social
-networks 32.3 (2010): 245-251.
+weighted networks: Generalizing degree and shortest paths.” *Social
+networks* 32.3 (2010): 245-251.
+
+Tu, Jia-Juan, et al. “Differential network analysis by simultaneously
+considering changes in gene interactions and gene expression.”
+*Bioinformatics* 37.23 (2021): 4414-4423.

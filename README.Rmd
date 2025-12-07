@@ -3,9 +3,19 @@ title: "Network analysis of gene expression data: a case study in _Saccharomyces
 output: github_document
 ---
 
+## Table of contents
+
+- [Introduction](#introduction)
+- [Exploratory Data Analysis](#exploratory-data-analysis)
+- [Gene Co-expression Network Selection, Estimation and Inference](#gene-co-expression-network-selection-estimation-and-inference)
+  - [Network Analysis: Hub and Bridging Genes](#network-analysis-hub-and-bridging-genes)
+- [Differential analysis of Gene Co-expression Networks under Control and Stressed Conditions](#differential-analysis-of-gene-co-expression-networks-under-control-and-stressed-conditions)
+  - [Differential network analysis](#differential-network-analysis)
+- [References](#references)
+
 ## Introduction
 
-In this analysis, we explore the gene expression data from the `gaschYHS` dataset (Gasch et al. 2000), which contains measurements of gene expression levels in _Saccharomyces cerevisiae_ (baker's yeast) under various environmental stress conditions. Our goal is to construct and analyze gene co-expression networks to identify key genes and their interactions under both control and stressed conditions.
+In this analysis, we explore the gene expression data from the `gaschYHS` dataset (Gasch et al. 2000), which contains measurements of gene expression levels in _Saccharomyces cerevisiae_ (baker's yeast) under various environmental stress conditions. Our goal is to construct and analyze gene co-expression networks to identify key genes and their interactions under both control and stressed conditions. The dataset is loaded from the `gaschYHS` package available on Bioconductor.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -13,8 +23,13 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r, message=FALSE, warning=FALSE}
 # Load necessary libraries
+
+# library(Biobase)
+# BioCManager::install("gaschYHS")
+# BioCManager::install("impute")
 library(gaschYHS)
 library(dplyr)
+library(impute)
 library(corrplot)
 library(ggplot2)
 library(graphSI)
@@ -42,7 +57,7 @@ We will focus on a subset of genes known to be involved in specific biological p
 
 These groups are identified in the original publication by Gasch et al. (2000).
 
-Some of the genes in these groups may not be present in the dataset; we will handle this by checking for their presence and excluding any missing genes from our analysis. Furthermore, we will remove genes with more than 10 missing values and conditions with any remaining missing values to ensure a complete dataset for our analysis.
+Some of the genes in these groups are excluded as they are not present in the dataset from Bioconductor; furthermore, we remove genes with more than missing values on more than 30\% of the conditions. We impute the remaining missing values using k-nearest neighbors imputation.
 
 ```{r}
 # group A: genes involved in carbohydrate metabolism
@@ -106,14 +121,14 @@ gene_group <- data.frame(
 df <- as.data.frame(t(data.frame(do.call(rbind, expr_list))))
 
 colnames(df) <- genes
-df <- df %>% select(where( ~!all(is.na(.))))
 
-# Remove genes and conditions with many missing values
-df <- df %>% select(which(colSums(is.na(.)) < 10))
-df <- df %>% filter(rowSums(is.na(.)) == 0)
-
+# Remove genes with 30% missing values
+df <- df %>% select(which(colSums(is.na(.)) < 0.3 * nrow(.)))
 # Remove the removed genes also from gene_groups
 gene_group <- gene_group %>% filter(gene %in% colnames(df))
+
+# Impute other missing values with knn
+df <- as.data.frame(impute.knn(as.matrix(df))$data)
 
 ```
 
@@ -208,7 +223,7 @@ ggraph(gene_graph, layout = "fr") +
   theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold.italic"))
 ```
 
-## Network Analysis: Hub and Bridging Genes
+### Network Analysis: Hub and Bridging Genes
 
 We will now analyze the network to identify hub genes, which are highly connected nodes in the network, and bridging genes, which connect to different gene groups. Hub genes may play crucial roles in maintaining the structure and function of the gene co-expression network, while bridging genes may facilitate communication between different biological processes. 
 
@@ -275,7 +290,7 @@ cat('</div>')
 
 ```
 
-## Comparison of Gene Co-expression Networks under Control and Stressed Conditions
+## Differential analysis of Gene Co-expression Networks under Control and Stressed Conditions
 
 Finally, we will compare the gene co-expression networks constructed from control conditions and stressed conditions. This comparison will help us understand how environmental stress affects gene interactions and identify any changes in network structure or key genes.
 
@@ -308,30 +323,49 @@ df_stress <- df[stress, ]
 
 We obtain `r nrow(df_control)` observations for the control group and `r nrow(df_stress)` observations for the stressed group.
 
+We first compute the correlation matrices for both groups to visualize differences in pairwise gene relationships. All pairwise correlations are positive in both groups, the stressed conditions show smaller correlations overall, indicating that stress may disrupt some gene co-expression patterns.
+
+```{r, fig.width=10, fig.height=5}
+# Correlation matrices for control and stress conditions
+cor_matrix_c <- cor(df_control)
+cor_matrix_s <- cor(df_stress)
+par(mfrow=c(1,2))
+corrplot(cor_matrix_c, method="color", tl.srt=90,
+         tl.col=gene_group$color, tl.cex=0.8)
+mtext("Control Conditions", side=3, line=3)
+
+corrplot(cor_matrix_s, method="color", tl.srt=90,
+         tl.col=gene_group$color, tl.cex=0.8)
+mtext("Stressed Conditions", side=3, line=3)
+```
+
+We compute separate gene co-expression networks for the control and stressed conditions using the same procedure as before, but without data splitting since inference is not performed here. We then transform the estimated precision matrices to partial correlation matrices, to avoid false discoveries caused by scale differences (Tu et al. 2021).
+
 We compare the two networks by visualizing them side by side, analyzing the top hub genes in each network, and examining the distribution of edge weights.
 Due to the small sample size in the control group, we do not perform statistical inference here, but only visualize the estimated graphs.
 The penalty parameter for graph selection is adjusted according to the sample size in each group. Due to the low sample size, and the different sample sizes between the two groups, we should be cautious in interpreting the results.
-The stress graph is denser than the control one, indicating that stress conditions may induce more complex gene interactions.
-
-We further examine the distribution of edge weights in both networks to see how stress conditions may affect the strength of gene interactions. The edge weights in the stressed condition tend to be higher, indicating not only more connections between genes under stress, as seen in the selected graphs, but also stronger ones.
+The stress graph is denser than the control one, with some positive interactions and some negative interactions in both cases. This result differs from the exploratory correlation analysis, where all correlations were positive. This highlights the importance of considering conditional dependencies rather than just marginal correlations when analyzing gene co-expression networks: pairwise correlations represent the global associations between genes, while partial correlations reflect the correlation between two genes after conditioning on all other genes, removing the global co-regulation effect.
 
 ```{r, message=FALSE, warning=FALSE, fig.width=12, fig.height=6}
 # Compare the co-regulation graphs
 
-selected_graph_c <- graphSelect(df_control, penalty="elastic net", lambda=3*sqrt(log(p)/nrow(df_control)), data.splitting = F, penalize.diagonal = T)
+selected_graph_c <- graphSelect(df_control, penalty="elastic net", lambda=sqrt(log(p)/nrow(df_control)), data.splitting = F, penalize.diagonal = T)
 adjacency_matrix_c <- selected_graph_c$adjacency.matrix
 estimated_graph_c <- graphInference(df_control, selected_graph_c, to.test="none", nullvalue=0)
-W_c <- estimated_graph_c$estimated.graph
-selected_graph_s <- graphSelect(df_stress, penalty="elastic net", lambda=3*sqrt(log(p)/nrow(df_stress)), data.splitting = F, penalize.diagonal = T)
+selected_graph_s <- graphSelect(df_stress, penalty="elastic net", lambda=sqrt(log(p)/nrow(df_stress)), data.splitting = F, penalize.diagonal = T)
 adjacency_matrix_s <- selected_graph_s$adjacency.matrix
 estimated_graph_s <- graphInference(df_stress, selected_graph_s, to.test="none", nullvalue=0)
-W_s <- estimated_graph_s$estimated.graph
+
+W_c <- -cov2cor(estimated_graph_c$estimated.graph)
+diag(W_c) <- 1
+W_s <- -cov2cor(estimated_graph_s$estimated.graph)
+diag(W_s) <- 1
 
 nodes <- data.frame(id = 1:p, name = gene_group$gene, Group = gene_group$group, color = gene_group$color)
 
-edges_c <- cbind(which(W_c != 0, arr.ind = TRUE), Weight = rescale(abs(W_c)[W_c != 0]))
+edges_c <- cbind(which(W_c != 0, arr.ind = TRUE), Weight = rescale(abs(W_c)[W_c != 0]), Sign = sign(W_c)[W_c != 0])
 edges_c <- as.data.frame(edges_c) %>% filter(row > col) %>% rename(from = row, to = col)
-edges_s <- cbind(which(W_s != 0, arr.ind = TRUE), Weight = rescale(abs(W_s)[W_s != 0]))
+edges_s <- cbind(which(W_s != 0, arr.ind = TRUE), Weight = rescale(abs(W_s)[W_s != 0]), Sign = sign(W_s)[W_s != 0])
 edges_s <- as.data.frame(edges_s) %>% filter(row > col) %>% rename(from = row, to = col)
 
 gene_graph_c <- graph_from_data_frame(d = edges_c, vertices = nodes, directed = FALSE)
@@ -342,17 +376,27 @@ coords <- layout_c[, c("x","y")]
 coords <- as.matrix(coords)
 
 p1 <- ggraph(layout_c) +
-  geom_edge_link(aes(alpha = Weight), color = "grey70", width = 1) +
+  geom_edge_link(aes(alpha = Weight, color = factor(Sign)), width = 1) +
   geom_node_point(aes(color = Group,
                       size = rescale(degree(gene_graph_c)))) +
+  scale_edge_color_manual(
+    name = "Interaction",
+    values = c("1" = "skyblue2", "-1" = "salmon2"),
+    labels = c("Positive", "Negative")
+  ) +
   scale_color_manual(values = setNames(gene_group$color, gene_group$group)) +
   geom_node_text(aes(label = name), vjust = 1.5, size = 3) +
   theme_void()+
   theme(legend.position = "none")
 p2 <- ggraph(gene_graph_s, layout = coords) +
-  geom_edge_link(aes(alpha = Weight), color = "grey70", width = 1) +
+  geom_edge_link(aes(alpha = Weight, color = factor(Sign)), width = 1) +
   geom_node_point(aes(color = Group,
                       size = rescale(degree(gene_graph_s)))) +
+  scale_edge_color_manual(
+    name = "Interaction",
+    values = c("1" = "skyblue2", "-1" = "salmon2"),
+    labels = c("Positive", "Negative")
+  ) +
   scale_color_manual(values = setNames(gene_group$color, gene_group$group)) +
   geom_node_text(aes(label = name), vjust = 1.5, size = 3) +
   theme_void() +
@@ -363,25 +407,10 @@ grid.arrange(p1 + ggtitle("Control Conditions") +
              p2 + ggtitle("Stressed Conditions") +
                theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold.italic")),
              ncol=2)
-
-# Histogram of edge weights in control and stress
-edges_c$Condition <- "Control"
-edges_s$Condition <- "Stress"
-edges_all <- rbind(edges_c, edges_s)
-ggplot(edges_all, aes(x = Weight, fill = Condition)) +
-  geom_histogram(position = "dodge", bins = 20, alpha = 0.7) +
-  scale_fill_manual(values = c("Control" = "skyblue", "Stress" = "salmon")) +
-  labs(title = "Edge Weight Distribution",
-       x = "Edge Weight",
-       y = "Count") +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold.italic"))
 ```
 
-Finally, we analyze the top hub genes and least connected genes in each network.
+We analyze the top hub genes and least connected genes in each network.
 In the control conditions, hubs are mostly from group A, suggesting these genes dominate central positions under normal conditions. Under environmental stress, group F becomes prominent, possibly reflecting the activation of stress-response pathways.
-
-
 
 ```{r}
 # Top hub genes in control
@@ -441,6 +470,61 @@ knitr::kable(least_table_s, type="html")
 cat('</div>')
 ```
 
+### Differential network analysis
+
+Compute now the difference between the two estimated networks to identify edges that change significantly between control and stressed conditions. This differential network highlights gene interactions that are specifically altered in response to environmental stress. 
+
+```{r, message=FALSE, fig.width=8, fig.height=6}
+
+W_d <- W_s - W_c
+
+# Visualize the differential network
+edges_d <- cbind(which(W_d != 0, arr.ind = TRUE), Weight = rescale(abs(W_d)[W_d != 0]), Sign = sign(W_d)[W_d != 0])
+edges_d <- as.data.frame(edges_d) %>% filter(row > col) %>% rename(from = row, to = col)
+gene_graph_d <- graph_from_data_frame(d = edges_d, vertices = nodes, directed = FALSE)
+ggraph(gene_graph_d, layout = coords) +
+  geom_edge_link(aes(alpha = Weight, color = factor(Sign)), width = 1) +
+  scale_edge_color_manual(
+    name = "Interaction",
+    values = c("1" = "skyblue2", "-1" = "salmon2"),
+    labels = c("strengthened", "weakened")
+  ) +
+  geom_node_point(aes(color = Group,
+                      size = rescale(degree(gene_graph_d)))) +
+  scale_color_manual(values = setNames(gene_group$color, gene_group$group)) +
+  geom_node_text(aes(label = name), vjust = 1.5, size = 3) +
+  theme_void() +
+  guides(edge_alpha = "none", size = "none", color = guide_legend(title = "Gene Group", override.aes = list(size = 3))) +
+  ggtitle("Differential Gene Co-expression Network (Stress - Control)") +
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold.italic"))
+
+strength_values_d <- igraph::strength(gene_graph_d)
+top_changed_genes_d <- names(sort(strength_values_d, decreasing = TRUE))[1:10]
+changed_table_d <- data.frame(
+  Strength = strength_values_d[top_changed_genes_d],
+  Group = V(gene_graph_d)$Group[match(top_changed_genes_d, V(gene_graph_d)$name)]
+)
+colnames(changed_table_d) <- c("Node Strength", "Group")
+# Less changed edges in the differential network
+least_changed_genes_d <- names(sort(strength_values_d, decreasing = FALSE))[1:10]
+least_changed_table_d <- data.frame(
+  Strength = strength_values_d[least_changed_genes_d],
+  Group = V(gene_graph_d)$Group[match(least_changed_genes_d, V(gene_graph_d)$name)]
+)
+colnames(least_changed_table_d) <- c("Node Strength", "Group")
+```
+
+```{r, echo=FALSE, results='asis'}
+cat('<div style="display: inline-block; vertical-align: top; margin-right: 20px;">')
+cat('<h4>Top 10 Changed Genes in Differential Network</h4>')
+knitr::kable(changed_table_d, type="html")
+cat('</div>')
+cat('<div style="display: inline-block; vertical-align: top;">')
+cat('<h4>Least Changed Genes in Differential Network</h4>')
+knitr::kable(least_changed_table_d, type="html")
+cat('</div>')
+```
+
 ## References
 
 Gasch, Audrey P., et al. "Genomic expression programs in the response of yeast cells to environmental changes." _Molecular biology of the cell_ 11.12 (2000): 4241-4257.
@@ -449,5 +533,8 @@ Jones, Payton J., Ruofan Ma, and Richard J. McNally. "Bridge centrality: a netwo
 
 Kovács, Solt, et al. "Graphical elastic net and target matrices: Fast algorithms and software for sparse precision matrix estimation." _arXiv_ preprint arXiv:2101.02148 (2021).
 
-Opsahl, Tore, Filip Agneessens, and John Skvoretz. "Node centrality in weighted networks: Generalizing degree and shortest paths." Social networks 32.3 (2010): 245-251.
+Opsahl, Tore, Filip Agneessens, and John Skvoretz. "Node centrality in weighted networks: Generalizing degree and shortest paths." _Social networks_ 32.3 (2010): 245-251.
+
+Tu, Jia-Juan, et al. "Differential network analysis by simultaneously considering changes in gene interactions and gene expression." _Bioinformatics_ 37.23 (2021): 4414-4423.
+
 
