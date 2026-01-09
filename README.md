@@ -284,7 +284,7 @@ ggraph(gene_graph, layout = "fr") +
   guides(edge_alpha = "none", size = "none", color = guide_legend(title = "Gene Group", override.aes = list(size = 3))) +
   theme_void() +
   ggtitle("Gene Co-expression Network") +
-  theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold.italic"))
+  theme(plot.title = element_text(hjust = 0.5, size = 10, face = "bold.italic"))
 ```
 
 ![](README_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
